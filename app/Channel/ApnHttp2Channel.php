@@ -2,17 +2,23 @@
 
 namespace App\Channel;
 
-class IOSPushService_HTTP2
+use Carbon\Carbon;
+use Illuminate\Notifications\Notification;
+/**
+ * Sender of Apple Push Http/2 Messages.
+ * Based on the code of http://coding.tabasoft.it/ios/sending-push-notification-with-http2-and-php/
+ */
+class ApnHttp2Channel
 {
     /**
-     * @var string $userAgent user agent for request
+     * @var array $msgHeaders
      */
-    protected $userAgent;
+    protected $msgHeaders;
 
     /**
-     * @var string $apnsTopic same as App Bundle Id
+     * @var string $encodedMessageBody
      */
-    protected $apnsTopic;
+    protected $encodedMessageBody;
 
     /**
      * @var bool $toProduction should use dev or production endpoint
@@ -34,6 +40,11 @@ class IOSPushService_HTTP2
      */
     protected $certPassword;
 
+    /**
+     * @var resource $curlResource
+     */
+    protected static $curlResource;
+
     public function __construct()
     {
         if (!defined('CURL_HTTP_VERSION_2_0')) {
@@ -41,11 +52,35 @@ class IOSPushService_HTTP2
         }
     }
 
-    public function sendPush(IOSPushDetailInterface $detail)
+    /**
+     * @param $notifiable
+     * @param Notification $notification
+     *
+     * @return array
+     * @throws \Exception
+     */
+    public function send($notifiable, Notification $notification)
     {
-        if($maybeDateSent = $detail->getStatusSent(true)) {
-            throw new \LogicException('Notificación ya enviada: ' . $maybeDateSent->format(DATE_ISO8601));
+        $deviceTokens = $notifiable->routeNotificationFor('apn', $notification);
+
+        $apnMessage = $notification->toApn($notifiable);
+
+        if (! $apnMessage instanceof ApnHttp2Message) {
+            throw new \LogicException('Notification message not matches expected class');
         }
+
+        if (empty($apnMessage->tokens) && empty($deviceTokens)) {
+            return [];
+        }
+
+
+    }
+
+    protected function doSendPush()
+    {
+        $this->initConnector();
+
+
 
         $message = $this->encodeMessage($detail);
 
@@ -122,6 +157,32 @@ class IOSPushService_HTTP2
         return $detail;
     }
 
+    protected function configureMessageHeaders(ApnHttp2Message $message)
+    {
+        $headers = $message->getHeaders();
+        $matchable = implode(';', $headers);
+
+        if (!preg_match('/User-Agent/', $matchable)) {
+            $headers[] = 'User-Agent: ' . config('apn_push.user_agent');
+        }
+
+        if (!preg_match('/apns-topic/', $matchable)) {
+            $headers[] = 'apns-topic: ' . config('apn_push.apns_topic');
+        }
+
+        if (!preg_match('/apns-priority/', $matchable)) {
+            $headers[] = 'apns-priority: 10';
+        }
+
+        if (!preg_match('/apns-expiration/', $matchable)) {
+            $expiration = Carbon::now()
+              ->addSeconds(24 * 60 * 60)
+              ->getTimestamp();
+            $headers[] = 'apns-expiration: ' . $expiration;
+        }
+        $this->msgHeaders = $headers;
+    }
+
     protected function encodeMessage(IOSPushDetail $detail): string
     {
         $msg = [
@@ -157,9 +218,21 @@ class IOSPushService_HTTP2
         ];
     }
 
-    protected function timestampFulfilledPush(AbstractPushDetail $detail): AbstractPushDetail
+    protected function initConnector()
     {
-        $detail->setDatePushSent(new \DateTimeImmutable());
-        return $detail;
+        if (is_null(self::$curlResource)) {
+            self::$curlResource = curl_init();
+        }
+    }
+
+    protected function closeConnection()
+    {
+        curl_close(self::$curlResource);
+        self::$curlResource = null;
+    }
+
+    protected function __destruct()
+    {
+        $this->closeConnection();
     }
 }
