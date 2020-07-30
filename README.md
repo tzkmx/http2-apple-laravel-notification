@@ -1,8 +1,10 @@
 # Dependency free Apple Push Notifications for Laravel
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/apantle/laravel-notification-apn-http2.svg?style=flat-square)](https://packagist.org/packages/apantle/laravel-notification-apn-http2)
+[![Maintainability](https://api.codeclimate.com/v1/badges/c9413cf63558337e8e37/maintainability)](https://codeclimate.com/github/tzkmx/http2-apple-laravel-notification/maintainability)
 [![Build Status](https://img.shields.io/travis/apantle/laravel-notification-apn-http2/master.svg?style=flat-square)](https://travis-ci.org/apantle/laravel-notification-apn-http2)
 [![Total Downloads](https://img.shields.io/packagist/dt/apantle/laravel-notification-apn-http2.svg?style=flat-square)](https://packagist.org/packages/apantle/laravel-notification-apn-http2)
+[![Test Coverage](https://api.codeclimate.com/v1/badges/c9413cf63558337e8e37/test_coverage)](https://codeclimate.com/github/tzkmx/http2-apple-laravel-notification/test_coverage)
 
 This package doesn't require 3rd party dependencies, and it allows
 sending of pushes to multiple apps, using differente PEM
