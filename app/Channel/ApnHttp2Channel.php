@@ -216,8 +216,9 @@ class ApnHttp2Channel
         self::$curlResource = null;
     }
 
-    protected function __destruct()
+    public function __destruct()
     {
+        if (is_null(self::$curlResource)) return;
         $this->closeConnection();
     }
 }

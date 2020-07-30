@@ -9,6 +9,10 @@ use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
+    const CREATED_AT = 'fec_alta';
+    const UPDATED_AT = 'fec_modif';
+    const DELETED_AT = 'fec_baja';
+
     protected $table = 'mc.users';
     protected $primaryKey = 'id_user';
 
@@ -33,6 +37,13 @@ class User extends Authenticatable
 
     use Notifiable;
     use SoftDeletes;
+
+    public function routeNotificationForApn($notification)
+    {
+        return $this->devices()
+          ->where('tip_device', 'ios')
+          ->get()->pluck('uid_device')->all();
+    }
 
     /**
      * The attributes that are mass assignable.

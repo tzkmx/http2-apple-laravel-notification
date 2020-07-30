@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Channel\ApnHttp2Channel;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -13,7 +15,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register()
     {
-        //
+        Notification::extend('apn', function ($app) {
+            return new ApnHttp2Channel();
+        });
     }
 
     /**

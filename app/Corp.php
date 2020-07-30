@@ -7,6 +7,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Corp extends Model
 {
+    const CREATED_AT = 'fec_alta';
+    const UPDATED_AT = 'fec_modif';
+    const DELETED_AT = 'fec_baja';
+
     protected $table = 'mc.corp';
     protected $primaryKey = 'id_empresa';
 

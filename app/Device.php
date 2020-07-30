@@ -6,6 +6,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class Device extends Model
 {
+    const CREATED_AT = 'fec_alta';
+    const UPDATED_AT = null;
+
     protected $table = 'mc.devicesdet';
     protected $primaryKey = 'id_devicedet';
 
