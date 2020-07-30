@@ -21,9 +21,14 @@ class ApnHttp2Channel
     protected $encodedMessageBody;
 
     /**
-     * @var bool $toProduction should use dev or production endpoint
+     * @var string $apnHost where to connect to send requests
      */
-    protected $toProduction;
+    protected $apnHost;
+
+    /**
+     * @var array $responses for send notifications call
+     */
+    protected $responses = [];
 
     /**
      * @var string $certsPath where to find the certificate(s) for push
@@ -61,6 +66,7 @@ class ApnHttp2Channel
      */
     public function send($notifiable, Notification $notification)
     {
+        $this->responses = [];
         $deviceTokens = $notifiable->routeNotificationFor('apn', $notification);
 
         $apnMessage = $notification->toApn($notifiable);
@@ -70,95 +76,66 @@ class ApnHttp2Channel
         }
 
         if (empty($apnMessage->tokens) && empty($deviceTokens)) {
-            return [];
+            return $this->responses;
         }
 
-
+        if (is_string($deviceTokens)) {
+            $this->doSendPush($deviceTokens, $apnMessage);
+        }
+        if (is_array($deviceTokens)) {
+            foreach ($deviceTokens as $token) {
+                $this->doSendPush($token, $apnMessage);
+            }
+        }
+        $msgToken = $apnMessage->tokens;
+        if (is_string($msgToken) && !empty($msgToken)) {
+            $this->doSendPush($msgToken, $apnMessage);
+        }
+        if (is_array($msgToken)) {
+            foreach ($msgToken as $token) {
+                $this->doSendPush($token, $apnMessage);
+            }
+        }
+        return $this->responses;
     }
 
-    protected function doSendPush()
+    protected function doSendPush(string $token, ApnHttp2Message $message)
     {
         $this->initConnector();
+        $this->configureApnHost();
+        $this->configureMessageHeaders($message);
+        $this->encodeMessage($message);
+        $this->configurePushCertificate($message);
+        $this->configureCertificatePassword($message);
 
+        $devicePushUrl = $this->apnHost . '/3/device/' . $token;
 
-
-        $message = $this->encodeMessage($detail);
-
-        $pemFile = realpath(resolve('app.dir') . '/../' . $detail->corpKey);
-        $passphrase = 'Nuts2002';
-
-        $corpId = $detail->corpId;
-        $app_bundle_id = PushesRepository::APPLE_BUNDLE_ID_CORP[$corpId];
-
-        $headers = [
-          'apns-topic: ' . $app_bundle_id,
-          'User-Agent: Samaya-Push/http2'
-        ];
-
-
-        $hostAPNservice = intval($detail->corpId) === 23
-          ? 'https://api.development.push.apple.com/'
-          : 'https://api.push.apple.com/';
-
-        $deviceToken = $detail->deviceId;
-
-        $devicePushUrl = $hostAPNservice . '3/device/' . $deviceToken;
-
-        error_log($devicePushUrl, 0);
-
-        $curl_res = curl_init();
-
-        curl_setopt_array($curl_res, [
+        curl_setopt_array(self::$curlResource, [
             CURLOPT_URL => $devicePushUrl,
             CURLOPT_PORT => 443,
-            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_HTTPHEADER => $this->msgHeaders,
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => $message,
+            CURLOPT_POSTFIELDS => $this->encodedMessageBody,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 5,
             // TODO: verificar SSL con 'entrust_2048_ca.cer?
             CURLOPT_SSL_VERIFYPEER => false,
-            CURLOPT_SSLCERT => $pemFile,
-            CURLOPT_SSLCERTPASSWD => $passphrase,
+            CURLOPT_SSLCERT => $this->certFile,
+            CURLOPT_SSLCERTPASSWD => $this->certPassword,
             CURLOPT_HEADER => 1,
         ]);
 
-        $response = curl_exec($curl_res);
-        $err = curl_error($curl_res);
-        $status = strval(curl_getinfo($curl_res, CURLINFO_HTTP_CODE));
+        $response = curl_exec(self::$curlResource);
+        $err = curl_error(self::$curlResource);
+        $status = strval(curl_getinfo(self::$curlResource, CURLINFO_HTTP_CODE));
 
-        error_log(var_export(compact('response', 'err', 'status'), true), 0);
-
-        if ($response === false) {
-            throw new \Exception('Failed APN push with error: ' . $err);
-        }
-        switch ($status) {
-            case '200':
-                $this->timestampFulfilledPush($detail);
-                break;
-            case '400':
-                $detail->setError([
-                  'code' => 'BadRequest',
-                  'response' => $response
-                ]);
-                $this->timestampFulfilledPush($detail);
-                break;
-            default:
-                $detail->setError([
-                  'code' => 'error',
-                  'response' => $response
-                ]);
-        }
-
-        if ($err && defined('DEBUG_SAMAYA_DEV') && DEBUG_SAMAYA_DEV) {
-            \rawLog($err);
-        }
-
-        return $detail;
+        $this->responses[] = compact('response', 'status', 'err');
     }
 
     protected function configureMessageHeaders(ApnHttp2Message $message)
     {
+        if (! empty($this->msgHeaders)) return;
+
         $headers = $message->getHeaders();
         $matchable = implode(';', $headers);
 
@@ -183,39 +160,47 @@ class ApnHttp2Channel
         $this->msgHeaders = $headers;
     }
 
-    protected function encodeMessage(IOSPushDetail $detail): string
+    protected function encodeMessage(ApnHttp2Message $message)
     {
-        $msg = [
-            'aps' => $this->buildMessageHeaders($detail),
-            'info' => $this->buildMessageBody($detail)
-        ];
-        // https://gist.github.com/valfer/18e1052bd4b160fed86e6cbb426bb9fc
-        return json_encode($msg);
+        if (empty($this->encodedMessageBody)) {
+            $this->encodedMessageBody = json_encode($message);
+        }
     }
 
-    protected function buildMessageBody(IOSPushDetail $detail): array
+    protected function configureApnHost()
     {
-        $filteredMsg = html_entity_decode($detail->message, ENT_NOQUOTES, 'UTF-8');
-        $filteredTitle = html_entity_decode($detail->title, ENT_NOQUOTES, 'UTF-8');
-
-        return [
-          'message' => $filteredMsg,
-          'title' => $filteredTitle,
-          'user' => 0,
-          'id_push' => $detail->pushId,
-          'asset_url' => '',
-          'asset_type' => 'na'
-        ];
+        if (empty($this->apnHost)) {
+            $this->apnHost = config('apn_push.apns_production')
+              ? 'https://api.push.apple.com'
+              : 'https://api.development.push.apple.com';
+        }
     }
 
-    protected function buildMessageHeaders(IOSPushDetail $detail): array
+    protected function configurePushCertificate(ApnHttp2Message $message)
     {
-        return [
-            'badge' => +1,
-            'alert' => html_entity_decode($detail->message, ENT_NOQUOTES, 'UTF-8'),
-            'sound' => 'default',
-            'content-available' => '1'
-        ];
+        if (empty($this->certsPath)) {
+            $this->certsPath = empty($message->certificatePath)
+              ? config('apn_push.certificates_dir')
+              : $message->certificatePath;
+        }
+        if (empty($this->certFile)) {
+            $certFile = empty($message->certificateFile)
+              ? config('apn_push.certificate_file')
+              : $message->certificateFile;
+            $this->certFile = realpath(
+              $this->certsPath . '/' .
+              $certFile
+            );
+        }
+    }
+
+    protected function configureCertificatePassword(ApnHttp2Message $message)
+    {
+        if (empty($this->certPassword)) {
+            $this->certPassword = empty($message->certPassword)
+              ? config('apn_push.cert_decrypt_password')
+              : $message->certPassword;
+        }
     }
 
     protected function initConnector()
