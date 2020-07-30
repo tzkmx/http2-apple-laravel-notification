@@ -2,7 +2,7 @@
 
 namespace App\Notifications;
 
-use App\Channel\ApnHttp2Message;
+use Apantle\ApnHttp2Notification\ApnHttp2Message;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 

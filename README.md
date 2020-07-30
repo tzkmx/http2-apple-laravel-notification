@@ -37,7 +37,7 @@ public function toApn($notifiable): ApnHttp2Message
         ]
     )
       ->setTopic($notifiable->org->topic)
-      ->setCertificateFile($notifiable->org->topic)
+      ->setCertificateFile($notifiable->org->ios_cert_push_file)
     ;
 }
 ```

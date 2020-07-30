@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Channel;
+namespace Apantle\ApnHttp2Notification;
 
 use Carbon\Carbon;
 use Illuminate\Support\Arr;
